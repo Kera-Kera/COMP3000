@@ -9,6 +9,9 @@ TagManager:
   - Teleporter
   - Bullet
   - SpawnPoints
+  - Weapon
+  - PickUpable
+  - SniperNest
   layers:
   - Default
   - TransparentFX
@@ -23,7 +26,7 @@ TagManager:
   - AI
   - FloatingPlatform
   - Bullet
-  - 
+  - Weapon
   - 
   - 
   - 

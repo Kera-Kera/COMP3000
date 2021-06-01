@@ -1,9 +1,8 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UI;
-
+using UnityEngine.SceneManagement;
 public class CharacterScript : BaseCharScript
 {
     [SerializeField]
@@ -12,8 +11,12 @@ public class CharacterScript : BaseCharScript
     [SerializeField]
     private Transform DeathCam;
 
+    [SerializeField]
+    private GameObject crosshair;
+
     private BoxCollider wallCollider;
 
+    private bool sniperScoped = false;
     [SerializeField]
     private float speed = 12f;
     [SerializeField]
@@ -21,6 +24,13 @@ public class CharacterScript : BaseCharScript
     private float currentSpeed;
     private bool isStealth = false;
     private bool playerLanded;
+
+    [SerializeField]
+    private GameObject PrimaryGun;
+    [SerializeField]
+    private GameObject SecondaryGun;
+
+
 
     [SerializeField]
     private float cameraSensitivity = 100f;
@@ -34,8 +44,14 @@ public class CharacterScript : BaseCharScript
     private int playerScore = 0;
     [SerializeField]
     private Text PlayerScoreTextbox;
+    private bool pointsCheck = false;
 
+    [SerializeField]
+    private Transform itemPickups;
+    private Transform inventory;
     private Transform currentGun;
+    private int currentGunInt = 0;
+    private bool isGunReady = true;
     private bool alreadyAttacked = false;
     [SerializeField]
     private GameObject bullet;
@@ -52,7 +68,7 @@ public class CharacterScript : BaseCharScript
     [SerializeField]
     private float groundDistance = 0.4f;
     [SerializeField]
-    private LayerMask groundMask, floatingMask;
+    private LayerMask groundMask, floatingMask, weaponMask;
     private Vector3 move;
 
     private Vector3 velocity;
@@ -62,6 +78,8 @@ public class CharacterScript : BaseCharScript
     // Start is called before the first frame update
     private void Start()
     {
+        
+        
         Cursor.lockState = CursorLockMode.Locked;
         AIScript = AI.GetComponent<BaseAIScript>();
         wallCollider = GetComponent<BoxCollider>();
@@ -73,7 +91,19 @@ public class CharacterScript : BaseCharScript
             SpawnPoints[i] = GameObject.FindGameObjectWithTag("SpawnPoints").transform.GetChild(i).transform;
         }
         Spawn();
-        
+        inventory = transform.GetChild(0).GetChild(0);
+        GameObject Primary = Instantiate(PrimaryGun, inventory);
+        Primary.transform.localPosition = new Vector3(0, 0, 0);
+        Primary.GetComponent<Rigidbody>().useGravity = false;
+        GameObject Secondary = Instantiate(SecondaryGun, inventory);
+        Secondary.SetActive(false);
+        Secondary.transform.localPosition = new Vector3(0, 0, 0);
+        Secondary.GetComponent<Rigidbody>().useGravity = false;
+        currentGun = inventory.GetChild(currentGunInt);
+        currentGun.GetComponent<BoxCollider>().enabled = false;
+        inventory.GetChild(1).GetComponent<BoxCollider>().enabled = false;
+        Primary.name = "Ak-47";
+        Secondary.name = "Pistol";
     }
     // Update is called once per frame
     private void Update()
@@ -82,6 +112,7 @@ public class CharacterScript : BaseCharScript
         FPSCamera();
         PlayerInputs();
         Gravity();
+        getMovement();
     }
     private void GroundCheck()
     {
@@ -120,9 +151,31 @@ public class CharacterScript : BaseCharScript
         {
             velocity.y = Mathf.Sqrt(3f * -2f * gravity);
         }
-        if (Input.GetMouseButton(0))
+        if (Input.GetMouseButton(0) && isGunReady)
         {
             PrimaryFire();
+        }
+        if (Input.GetMouseButtonDown(1) && isGunReady)
+        {
+            SecondaryFire();
+        }
+        if (Input.GetKeyDown(KeyCode.Alpha1) && isGunReady && inventory.childCount!=0)
+        {
+            int otherWeapon;
+            
+            if(currentGun.GetSiblingIndex() == 0)
+            {
+                otherWeapon = 1;
+            }
+            else
+            {
+                otherWeapon = 0;
+            }
+            StartCoroutine(ChangeWeapon(currentGun.GetSiblingIndex(), otherWeapon));
+        }
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+            StartCoroutine(PickUpWeapon());
         }
         if (Input.GetKey(KeyCode.LeftShift))
         {
@@ -137,6 +190,11 @@ public class CharacterScript : BaseCharScript
             }
             currentSpeed = speed;
         }
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            SceneManager.LoadScene(0);
+        }
     }
     private void Gravity()
     {
@@ -145,53 +203,135 @@ public class CharacterScript : BaseCharScript
 
     }
 
+    IEnumerator ChangeWeapon(int currentWeapon, int newWeapon)
+    {
+        Camera.main.fieldOfView = 60;
+        isGunReady = false;
+        if (inventory.childCount > 0)
+        {
+            inventory.GetChild(currentWeapon).gameObject.SetActive(false);
+            yield return new WaitForSeconds(0.3f);
+            if (inventory.childCount != 0)
+            {
+                inventory.GetChild(newWeapon).gameObject.SetActive(true);
+                currentGunInt = newWeapon;
+                currentGun = inventory.GetChild(currentGunInt);
+            }
+        }
+        isGunReady = true;
+    }
 
+    IEnumerator PickUpWeapon()
+    {
+        bool itemInRange = Physics.CheckSphere(transform.position, 5, weaponMask);
+
+        if (itemInRange && isGunReady)
+        {
+            isGunReady = false;
+            GameObject closestWeapon = null;
+            float shortest = Mathf.Infinity;
+            Collider[] hitColliders = Physics.OverlapSphere(transform.position, 5, weaponMask);
+            foreach (var hitCollider in hitColliders)
+            {
+                if (hitCollider.transform.tag == "PickUpable")
+                {
+                    float dist = Vector3.Distance(hitCollider.transform.position, transform.position);
+                    if (dist < shortest)
+                    {
+                        closestWeapon = hitCollider.gameObject;
+                        shortest = dist;
+                    }                    
+                }
+            }
+            yield return new WaitForSeconds(0.2f);
+            if (closestWeapon != null)
+            {
+                SetPickupable(currentGun, 20);
+                currentGun.position = closestWeapon.transform.position;
+                currentGun.rotation = closestWeapon.transform.rotation;
+                
+                closestWeapon.transform.SetParent(inventory);
+                closestWeapon.transform.localPosition = new Vector3(0, 0, 0);
+                closestWeapon.transform.localRotation = new Quaternion(0, 0, 0, 0);
+                closestWeapon.transform.SetSiblingIndex(currentGunInt);
+                currentGun = inventory.GetChild(currentGunInt);
+                currentGun.GetComponent<Rigidbody>().useGravity = false;
+                currentGun.GetComponent<Rigidbody>().isKinematic = true;
+                currentGun.GetComponent<BoxCollider>().enabled = false;
+                currentGun.tag = "Weapon";
+                isGunReady = true;
+            }
+        }
+    }
+
+    
 
     private void PrimaryFire()
     {
-
-        currentGun = transform.GetChild(0).GetChild(0).GetChild(0);
-        
-        if (!alreadyAttacked)
+        if (inventory.childCount > 0)
         {
-            Shoot();
+            currentGun = inventory.GetChild(currentGunInt);
+            if (!alreadyAttacked)
+            {
+                Shoot();
 
-            alreadyAttacked = true;
+                alreadyAttacked = true;
 
-            Invoke(nameof(ResetAttack), currentGun.GetComponent<GunInfo>().GetFireRate());
+                Invoke(nameof(ResetAttack), currentGun.GetComponent<GunInfo>().GetFireRate());
+            }
         }
+    }
+
+    private void SecondaryFire()
+    {
+        if (inventory.childCount > 0)
+        {
+            currentGun = inventory.GetChild(currentGunInt);
+            if (currentGun.name == "Sniper")
+            {
+                if (!sniperScoped)
+                {
+                    Camera.main.fieldOfView = 30;
+                }
+                else
+                {
+                    Camera.main.fieldOfView = 60;
+                }
+                sniperScoped = !sniperScoped;
+            }
+        }
+    }
+
+    IEnumerator ZoomingWait(bool sniperScope)
+    {
+
+        
+        yield return new WaitForSeconds(0.1f);
+
     }
 
     private void Shoot()
     {
         GunInfo guninfo = currentGun.GetComponent<GunInfo>();
-        if (guninfo.GetNumberOfBullets() > 1)
+
+        for (int i = 0; i < guninfo.GetNumberOfBullets(); i++)
         {
-            for (int i = 0; i < guninfo.GetNumberOfBullets(); i++)
-            {
-                  Quaternion ranRotation = Camera.main.transform.rotation;
-                //  float radius = 5;
-                // ranRotation.x += Random.Range(-radius, radius);
-                // ranRotation.z += Random.Range(-radius, radius);
-                //ranRotation.y += Random.Range(-radius, radius);
-                float ConeSize = 5;
+            float ConeSize = guninfo.GetSpread();
 
-                float xSpread = Random.Range(-1, 1);
-                float ySpread = Random.Range(-1, 1);
-                //normalize the spread vector to keep it conical
-                Vector3 spread = new Vector3(xSpread, ySpread, 0.0f).normalized * ConeSize;
-                Quaternion rotation = Quaternion.Euler(spread) * ranRotation;
+            float xSpread = Random.Range(-1.0f, 1.0f);
+            float ySpread = Random.Range(-1.0f, 1.0f);
+            float zSpread = Random.Range(-1.0f, 1.0f);
+
+            Vector3 spread = new Vector3(xSpread, ySpread, zSpread).normalized * ConeSize;
+            Quaternion rotation = Quaternion.Euler(spread) * Camera.main.transform.rotation;
 
 
-                GameObject bulletFiring = Instantiate(bullet, Camera.main.transform.position + (Camera.main.transform.forward.normalized * 2), rotation);
-                bulletFiring.GetComponent<BulletScript>().newBullet(guninfo.GetVelocity(), guninfo.GetDamage(), guninfo.GetSize(), gameObject);
-            }
-        }
-        else
-        {
-            GameObject bulletFiring = Instantiate(bullet, currentGun.GetChild(0).position, currentGun.rotation);
+
+            GameObject bulletFiring = Instantiate(bullet, Camera.main.transform.position + (Camera.main.transform.forward.normalized * 2), rotation);
             bulletFiring.GetComponent<BulletScript>().newBullet(guninfo.GetVelocity(), guninfo.GetDamage(), guninfo.GetSize(), gameObject);
         }
+
+
         AIScript.NoiseAlert(true);
     }
 
@@ -206,8 +346,13 @@ public class CharacterScript : BaseCharScript
         {
             health -= damage;
             healthBar.value = health;
-            if (health <= 0) { health = 0;
-                StartCoroutine(Respawn());
+            if (health <= 0)
+            {
+                health = 0;
+                if (inventory.childCount > 0)
+                {
+                    StartCoroutine(Respawn());
+                }
             }
         }
     }
@@ -255,11 +400,12 @@ public class CharacterScript : BaseCharScript
             {
                 if (Vector3.Distance(transform.position, hitInfo.point) < 1.5)
                 {
-                    playerDir = transform.position;
+                    print("XD");
+                    playerDir = new Vector3(0,0,0);
                 }
             }
         }
-        return playerDir + (velocity/8);
+        return playerDir + (velocity/18);
     }
     public void setVelocity(Vector3 newVelocity)
     {
@@ -268,23 +414,76 @@ public class CharacterScript : BaseCharScript
 
     public void IncreasePlayerScore()
     {
-        playerScore += 1;
-        PlayerScoreTextbox.text = playerScore.ToString();
+        if (pointsCheck == false)
+        {
+            StartCoroutine(pointsChecking());
+            playerScore += 1;
+            PlayerScoreTextbox.text = playerScore.ToString();
+        }
+    }
+    IEnumerator pointsChecking()
+    {
+        pointsCheck = true;
+        yield return new WaitForSeconds(0.2f);
+        pointsCheck = false;
+    }
+
+    private void SetPickupable(Transform pickup, float rotation)
+    {
+        pickup.SetParent(itemPickups);
+        currentGun.tag = "PickUpable";
+        if (!pickup.gameObject.activeSelf)
+        {
+            pickup.gameObject.SetActive(true);
+        }
+        pickup.GetComponent<Rigidbody>().useGravity = true;
+        pickup.GetComponent<Rigidbody>().isKinematic = false;
+        pickup.GetComponent<BoxCollider>().enabled = true;
+        pickup.Rotate(0.0f, 0.0f, rotation, Space.World);
+    }
+
+    public int GetPlayerScore()
+    {
+        return playerScore;
     }
 
     public IEnumerator Respawn()
     {
+        SetPickupable(inventory.GetChild(1), 20);
+        SetPickupable(inventory.GetChild(0), -20);
         DeathCam.GetComponent<DeathCamera>().UseDeathCam();
+        crosshair.SetActive(false);
         gameObject.transform.position = new Vector3(11111, 11111, 1111);
         AI.GetComponent<BaseAIScript>().IncreaseAIScore();
         yield return new WaitForSeconds(2f);
-        DeathCam.GetComponent<DeathCamera>().DisableDeathCam();
+        if (playerScore != 10 || AIScript.GetAIScore() != 10)
+        {
+            DeathCam.GetComponent<DeathCamera>().DisableDeathCam();
+        }
+
+
+        GameObject Primary = Instantiate(PrimaryGun, inventory);
+        Primary.name = "Ak-47";
+        Primary.transform.localPosition = new Vector3(0, 0, 0);
+        GameObject Secondary = Instantiate(SecondaryGun, inventory);
+        Secondary.name = "Pistol";
+        Secondary.transform.localPosition = new Vector3(0, 0, 0);
+        Secondary.SetActive(false);
+        currentGun = Primary.transform;
+        
+        currentGunInt = 0;
+
+
         Spawn();
+        
     }
+
+    
 
     private void Spawn()
     {
         isStealth = true;
+        crosshair.SetActive(true);
         int currentNumber = Random.Range(0, SpawnPoints.Length);
         while (Vector3.Distance(SpawnPoints[currentNumber].position, AI.transform.position) < 60)
         {
@@ -293,10 +492,13 @@ public class CharacterScript : BaseCharScript
         Vector3 spawn = SpawnPoints[currentNumber].position;
         Quaternion spawnRot = SpawnPoints[currentNumber].rotation;
         spawn.y += 1.7f;
+
+        Camera.main.fieldOfView = 60;
+        //Ak47.transform.name = "Ak-47";
+
         transform.position = spawn;
         transform.rotation = spawnRot;
         takeHeal(100f);
         rotationY = 0f;
     }
-
 }

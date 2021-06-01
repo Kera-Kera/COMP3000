@@ -15,20 +15,36 @@ public class BaseAIScript : BaseCharScript
     private int aiScore = 0;
     [SerializeField]
     private Text aiScoreTextbox;
+    private bool pointsCheck = false;
+
+    [SerializeField]
+    private GameObject PrimaryGun;
+    [SerializeField]
+    private GameObject SecondaryGun;
 
     private Transform[] SpawnPoints;
 
+    [SerializeField]
+    private Transform itemPickups;
+    private Transform inventory;
     private Transform currentGun;
+    private int currentGunInt = 0;
+    private bool isGunReady = true;
 
     [SerializeField]
     private Transform player;
+
+    private bool isBored = false;
 
     [SerializeField]
     private GameObject bullet;
 
     [SerializeField]
-    private LayerMask groundMask, playerMask, aiMask;
+    private LayerMask groundMask, playerMask, aiMask, weaponMask;
 
+    [SerializeField]
+    private GameObject locations;
+    
     [SerializeField]
     private Vector3 walkPoint;
     private bool walkPointSet;
@@ -59,12 +75,14 @@ public class BaseAIScript : BaseCharScript
     [SerializeField]
     private float sightRadius = 180;
 
+    private bool Pathcheck1 = true;
+    private bool Pathcheck2 = true;
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         line = GetComponent<LineRenderer>();
         playerScript = player.GetComponent<CharacterScript>();
-        currentGun = transform.GetChild(0).GetChild(0).GetChild(0);
+        inventory = transform.GetChild(0).GetChild(0);
 
         int NumSpawns = GameObject.FindGameObjectWithTag("SpawnPoints").transform.childCount;
         SpawnPoints = new Transform[NumSpawns];
@@ -73,30 +91,56 @@ public class BaseAIScript : BaseCharScript
 
             SpawnPoints[i] = GameObject.FindGameObjectWithTag("SpawnPoints").transform.GetChild(i).transform;
         }
+        inventory = transform.GetChild(0).GetChild(0);
+        GameObject Primary = Instantiate(PrimaryGun, inventory);
+        Primary.transform.localPosition = new Vector3(0, 0, 0);
+        Primary.GetComponent<Rigidbody>().useGravity = false;
+        GameObject Secondary = Instantiate(SecondaryGun, inventory);
+        Secondary.SetActive(false);
+        Secondary.transform.localPosition = new Vector3(0, 0, 0);
+        Secondary.GetComponent<Rigidbody>().useGravity = false;
+        currentGun = inventory.GetChild(currentGunInt);
+        currentGun.GetComponent<BoxCollider>().enabled = false;
+        inventory.GetChild(1).GetComponent<BoxCollider>().enabled = false;
+        Primary.name = "Ak-47";
+        Secondary.name = "Pistol";
         Spawn();
     }
 
     private void Update()
     {
-        Attack();
-
-        DrawPath(agent.path);
+        Check();
     }
 
     #region Player Actions
-    private void Attack()
+    private void Check()
     {
         playerInHearingRange = Physics.CheckSphere(transform.position, hearingRange, playerMask);
         playerInAttackRange = Physics.CheckSphere(transform.position, attackRange, playerMask);
         playerInfront = Mathf.Abs(Vector3.Angle(player.position - transform.position, transform.forward)) < sightRadius && playerInAttackRange;
 
         bool ShootableCheck = playerInAttackRange && checkIfSightNotBlocked() && playerInfront && checkIfGunNotBlocked();
-
-        if (health > 30) {
-            if (ShootableCheck)
-            {
+        if (health > 30 ) {
+            if (ShootableCheck && currentGun.name != "Shotgun")
+            { 
                 ShootPlayer();
                 patience = 100;
+                if (Vector3.Distance(player.position, transform.position) < 10 && inventory.GetChild(1).name == "Shotgun")
+                {
+                    StartCoroutine(ChangeWeapon(currentGun.GetSiblingIndex(), GetOtherWeapon()));
+                }
+            }
+            else if (ShootableCheck && currentGun.name == "Shotgun")
+            {
+                ShootPlayer();
+                if (Vector3.Distance(transform.position, player.position) > 8 )
+                {
+                    ChasePlayer(true);
+                    if (Vector3.Distance(transform.position, player.position) > 11 && currentGun.name == "Shotgun")
+                    {
+                        StartCoroutine(ChangeWeapon(currentGun.GetSiblingIndex(), GetOtherWeapon()));
+                    }
+                }
             }
             else if (playerInHearingRange)
             {
@@ -104,10 +148,15 @@ public class BaseAIScript : BaseCharScript
             }
             else
             {
+
                 ChasePlayer(false);
             }
         }
-        else if(playerScript.getHealth() < 30 && ShootableCheck)
+        else if (playerScript.getHealth() < currentGun.GetComponent<GunInfo>().GetDamage() && ShootableCheck)
+        {
+            ShootPlayer();
+        }
+        else if(playerScript.getHealth() < 30 && health < 30 && ShootableCheck)
         {
             ShootPlayer();
             ChasePlayer(true);
@@ -136,7 +185,6 @@ public class BaseAIScript : BaseCharScript
 
         if (Physics.Raycast(ray, out hitInfo))
         {
-            
             GameObject go = hitInfo.collider.gameObject;
             if (go.tag == "Player" || go.tag == "Bullet")
             {
@@ -190,6 +238,7 @@ public class BaseAIScript : BaseCharScript
 
         if (check)
         {
+            isBored = false;
             agent.SetDestination(player.position);
             Vector3 playerPosition = new Vector3(player.position.x, transform.position.y, player.position.z);
             transform.LookAt(playerPosition);
@@ -210,37 +259,20 @@ public class BaseAIScript : BaseCharScript
     }
     private void ShootPlayer()
     {
-        playerLastPos = player.position;
-        agent.SetDestination(transform.position);
-
-        Vector3 playerPositionTracked = player.transform.position;
-        float distanceFromPlayer = Vector3.Distance(playerPositionTracked, transform.position);
-        playerPositionTracked.y += distanceFromPlayer * currentGun.GetComponent<GunInfo>().AIDrop();
-        Vector3 playerPosition = player.transform.position;
-        playerPosition.y = transform.position.y;
-        transform.LookAt(playerPosition);
-
-        playerPositionTracked += playerScript.getMovement() * distanceFromPlayer * 0.07f;
-
-        Vector3 playerDir = currentGun.GetChild(0).position - playerPositionTracked;
-        Debug.DrawRay(currentGun.GetChild(0).position, -playerDir, Color.yellow);
-
-        float radius = distanceFromPlayer * 0.02f;
-        playerPositionTracked.x += Random.Range(-radius, radius);
-        playerPositionTracked.z += Random.Range(-radius, radius);
-        playerPositionTracked.y += Random.Range(-radius, radius);
-        
-
-
-        currentGun.LookAt(playerPositionTracked);
-
-        if (!alreadyAttacked)
+        if (inventory.childCount > 0)
         {
-            Shoot();
+            playerLastPos = player.position;
+            agent.SetDestination(transform.position);
+            currentGun = inventory.GetChild(currentGunInt);
+            currentGun.LookAt(playerLastPos);
+            if (!alreadyAttacked)
+            {
+                Shoot();
 
-            alreadyAttacked = true;
+                alreadyAttacked = true;
 
-            Invoke(nameof(ResetAttack), currentGun.GetComponent<GunInfo>().GetFireRate());
+                Invoke(nameof(ResetAttack), currentGun.GetComponent<GunInfo>().GetFireRate());
+            }
         }
     }
 
@@ -252,18 +284,53 @@ public class BaseAIScript : BaseCharScript
     private void Shoot()
     {
         GunInfo guninfo = currentGun.GetComponent<GunInfo>();
+
+        Vector3 playerPositionTracked = player.transform.position;
+        float distanceFromPlayer = Vector3.Distance(playerPositionTracked, transform.position);
+        playerPositionTracked.y += distanceFromPlayer * guninfo.AIDrop();
+        Vector3 playerPosition = player.transform.position;
+        playerPosition.y = transform.position.y;
+        transform.LookAt(playerPosition);
+
+        playerPositionTracked += playerScript.getMovement() * distanceFromPlayer * (0.03f + guninfo.AICorrection());
+
+        Vector3 playerDir = currentGun.GetChild(0).position - playerPositionTracked;
+        Debug.DrawRay(currentGun.GetChild(0).position, -playerDir, Color.yellow);
+
+        if (currentGun.name == "Sniper")
+        {
+            float radius = distanceFromPlayer * 0.005f;
+            playerPositionTracked.x += Random.Range(-radius, radius);
+            playerPositionTracked.z += Random.Range(-radius, radius);
+            playerPositionTracked.y += Random.Range(-radius, radius);
+        }
+        else
+        {
+            float radius = distanceFromPlayer * 0.02f;
+            playerPositionTracked.x += Random.Range(-radius, radius);
+            playerPositionTracked.z += Random.Range(-radius, radius);
+            playerPositionTracked.y += Random.Range(-radius, radius);
+        }
+
+        currentGun.LookAt(playerPositionTracked);
+
+        
         if (guninfo.GetNumberOfBullets() > 1)
         {
             for (int i = 0; i < guninfo.GetNumberOfBullets(); i++)
             {
                 Quaternion ranRotation = currentGun.rotation;
-                float radius = 5;
-                ranRotation.x += Random.Range(-radius, radius);
-                ranRotation.z += Random.Range(-radius, radius);
-                ranRotation.y += Random.Range(-radius, radius);
+                float ConeSize = 5;
+
+                float xSpread = Random.Range(-1.0f, 1.0f);
+                float ySpread = Random.Range(-1.0f, 1.0f);
+                float zSpread = Random.Range(-1.0f, 1.0f);
+                Vector3 spread = new Vector3(xSpread, ySpread, zSpread).normalized * ConeSize;
+
+                Quaternion rotation = Quaternion.Euler(spread) * ranRotation;
 
 
-                GameObject bulletFiring = Instantiate(bullet, currentGun.GetChild(0).position, ranRotation);
+                GameObject bulletFiring = Instantiate(bullet, currentGun.GetChild(0).position, rotation);
                 bulletFiring.GetComponent<BulletScript>().newBullet(guninfo.GetVelocity(), guninfo.GetDamage(), guninfo.GetSize(), gameObject);
             }
         }
@@ -279,44 +346,37 @@ public class BaseAIScript : BaseCharScript
     #region AI Actions
     private void Action()
     {
-        print("action");
         if (health < 30)
         {
             GoToHealthPack();
         }
         else if (patience <= 100 && patience != 0)
         {
+            print(patience);
             LookAroundSelf();
         }
-        else if (currentGun.name == "Sniper")
+        else if (inventory.GetChild(0).name != "Shotgun" && inventory.GetChild(1).name != "Shotgun" && Pathcheck1)
         {
-            GoToSniperNest();
+            GoToWeapon("Shotgun", "Ak-47", 1);
         }
-        else if (currentGun.name == "Ak-47")
+        
+        else if (inventory.GetChild(0).name != "Sniper" && inventory.GetChild(1).name != "Sniper" && Pathcheck2)
         {
-            GoToPowerWeapon();
+            GoToWeapon("Sniper" , "Shotgun", 2);
         }
         else if (health != 100)
         {
             GoToHealthPack();
+        }
+        else if (currentGun.name == "Sniper" && !isBored)
+        {
+            GoToSniperNest();
         }
         else
         {
             FindPlayer();
         }
 
-    }
-
-    bool stayCurrentAction(int choicea, int choiceb)
-    {
-        if (choicea > choiceb)
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
     }
 
     void GoToHealthPack()
@@ -342,33 +402,117 @@ public class BaseAIScript : BaseCharScript
                 }
             }
         }
-
         agent.SetDestination(closestHealthPack.transform.position);
     }
     void GoToSniperNest()
     {
-        FindPlayer();
-    }
-    void GoToPowerWeapon()
-    {
-        FindPlayer();
+        GameObject closestLocal = null;
+        float shortest = Mathf.Infinity;
+        GameObject[] foundlocations;
+        foundlocations = GameObject.FindGameObjectsWithTag("SniperNest");
+        foreach (GameObject local in foundlocations)
+        {
+            float dist = Vector3.Distance(local.transform.position, transform.position);
+            if (dist < shortest)
+            {
+                closestLocal = local;
+                shortest = dist;
+            }
+        }
+        playerLastPos = closestLocal.transform.position;
+        agent.SetDestination(playerLastPos);
+        if(Vector3.Distance(playerLastPos, transform.position) < 5)
+        {
+            StartCoroutine(SniperWaiting());
+        }
     }
 
-    void ChangeWeapon()
+    IEnumerator SniperWaiting()
+    {
+        yield return new WaitForSeconds(20);
+        isBored = true;
+    }
+
+
+    private void GoToWeapon(string weaponName, string gunKeep, int pathcheck)
     {
 
+        GameObject closestWeapon = null;
+        float shortest = Mathf.Infinity;
+        GameObject[] weapons;
+        weapons = GameObject.FindGameObjectsWithTag("PickUpable");
+
+        foreach (GameObject weapon in weapons)
+        {
+            float dist = Vector3.Distance(weapon.transform.position, transform.position);
+            if (dist < shortest)
+            {
+                if (weapon.name == weaponName)
+                {
+                    closestWeapon = weapon;
+                    shortest = dist;
+                    
+                }
+            }
+        }
+
+        if (closestWeapon == null)
+        {
+            if (pathcheck == 1) Pathcheck1 = false;
+            if (pathcheck == 2) Pathcheck2 = false;
+        }
+        else
+        {
+            if (pathcheck == 1) Pathcheck1 = true;
+            if (pathcheck == 2) Pathcheck2 = true;
+
+            playerLastPos = closestWeapon.transform.position;
+            agent.SetDestination(playerLastPos);
+
+            if (Vector3.Distance(closestWeapon.transform.position, transform.position) < 3)
+            {
+                if (currentGun.name == gunKeep)
+                {
+                    StartCoroutine(ChangeWeapon(currentGun.GetSiblingIndex(), GetOtherWeapon()));
+                }
+                StartCoroutine(PickUpWeapon());
+            }
+        }       
+    }
+
+    private int GetOtherWeapon()
+    {
+        if (currentGun.GetSiblingIndex() == 0)
+        {
+            return 1;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    IEnumerator ChangeWeapon(int currentWeapon, int newWeapon)
+    {
+
+        isGunReady = false;
+        inventory.GetChild(currentWeapon).gameObject.SetActive(false);
+        yield return new WaitForSeconds(0.3f);
+        inventory.GetChild(newWeapon).gameObject.SetActive(true);
+        currentGunInt = newWeapon;
+        currentGun = inventory.GetChild(currentGunInt);
+        isGunReady = true;
     }
 
     void LookAroundSelf()
     {
         if (patience > 0)
         {
-            patience -= 500f * Time.deltaTime;
+            patience -= 10000f * Time.deltaTime;
             if (Vector3.Distance(agent.destination, agent.transform.position) <= agent.stoppingDistance)
             {
                 if (!agent.hasPath || agent.velocity.sqrMagnitude == 0f)
                 {
-                    print("this1");
                     float radius = 15f;
                     playerLastPos.x += Random.Range(-radius, radius);
                     playerLastPos.z += Random.Range(-radius, radius);
@@ -400,7 +544,6 @@ public class BaseAIScript : BaseCharScript
             {
                 if (!agent.hasPath || agent.velocity.sqrMagnitude == 0f)
                 {
-                    print("this2");
                     float radius = 20f;
                     playerLastPos = (player.position + transform.position) / 2;
                     playerLastPos.x += Random.Range(-radius, radius);
@@ -413,15 +556,20 @@ public class BaseAIScript : BaseCharScript
 
     public void NoiseAlert(bool loud)
     {
-        if (playerInHearingRange)
+        if (inventory.childCount > 0)
         {
-            playerLastPos = player.position;
+            if ((inventory.GetChild(0).name == "Sniper" || inventory.GetChild(1).name == "Sniper") && Vector3.Distance(player.position, transform.position) > 20)
+            {
+                if (playerInHearingRange)
+                {
+                    playerLastPos = player.position;
+                }
+                if (loud)
+                {
+                    playerLastPos = player.position;
+                }
+            }
         }
-        if (loud)
-        {
-            playerLastPos = player.position;
-        }
-        patience = 100;
     }
 
     public override void takeDamage(float damage, string whoShot)
@@ -431,7 +579,10 @@ public class BaseAIScript : BaseCharScript
             health -= damage;
             healthBar.value = health;
             if (health <= 0) { health = 0;
-                StartCoroutine(Respawn());
+                if (inventory.childCount > 0)
+                {
+                    StartCoroutine(Respawn());
+                }
             }
         }
     }
@@ -459,17 +610,101 @@ public class BaseAIScript : BaseCharScript
 
     public void IncreaseAIScore()
     {
-        aiScore += 1;
-        aiScoreTextbox.text = aiScore.ToString();
-        playerLastPos = transform.position;
-        patience = 0f;
+        if (pointsCheck == false)
+        {
+            StartCoroutine(pointsChecking());
+            aiScore += 1;
+            aiScoreTextbox.text = aiScore.ToString();
+            playerLastPos = transform.position;
+            patience = 0f;
+        }
+    }
+    IEnumerator pointsChecking()
+    {
+        pointsCheck = true;
+        yield return new WaitForSeconds(0.2f);
+        pointsCheck = false;
+    }
+
+    IEnumerator PickUpWeapon()
+    {
+        bool itemInRange = Physics.CheckSphere(transform.position, 5, weaponMask);
+        
+        if (itemInRange && isGunReady)
+        {
+            
+            isGunReady = false;
+            GameObject closestWeapon = null;
+            float shortest = Mathf.Infinity;
+            Collider[] hitColliders = Physics.OverlapSphere(transform.position, 5, weaponMask);
+            foreach (var hitCollider in hitColliders)
+            {
+                if (hitCollider.transform.tag == "PickUpable")
+                {
+                    float dist = Vector3.Distance(hitCollider.transform.position, transform.position);
+                    if (dist < shortest)
+                    {
+                        closestWeapon = hitCollider.gameObject;
+                        shortest = dist;
+                    }
+                }
+            }
+            yield return new WaitForSeconds(0.2f);
+            if (closestWeapon != null)
+            {
+                SetPickupable(currentGun, 20);
+                currentGun.position = closestWeapon.transform.position;
+                currentGun.rotation = closestWeapon.transform.rotation;
+
+                closestWeapon.transform.SetParent(inventory);
+                closestWeapon.transform.localPosition = new Vector3(0, 0, 0);
+                closestWeapon.transform.localRotation = new Quaternion(0, 0, 0, 0);
+                closestWeapon.transform.SetSiblingIndex(currentGunInt);
+                currentGun = inventory.GetChild(currentGunInt);
+                currentGun.GetComponent<Rigidbody>().useGravity = false;
+                currentGun.GetComponent<Rigidbody>().isKinematic = true;
+                currentGun.GetComponent<BoxCollider>().enabled = false;
+                currentGun.tag = "Weapon";
+                isGunReady = true;
+            }
+        }
+    }
+
+    private void SetPickupable(Transform pickup, float rotation)
+    {
+        pickup.SetParent(itemPickups);
+        pickup.tag = "PickUpable";
+        if (!pickup.gameObject.activeSelf)
+        {
+            pickup.gameObject.SetActive(true);
+        }
+        pickup.GetComponent<Rigidbody>().useGravity = true;
+        pickup.GetComponent<Rigidbody>().isKinematic = false;
+        pickup.GetComponent<BoxCollider>().enabled = true;
+        pickup.Rotate(0.0f, 0.0f, rotation, Space.Self);
     }
 
     public IEnumerator Respawn()
     {
+        SetPickupable(inventory.GetChild(1), 20);
+        SetPickupable(inventory.GetChild(0), -20);
         agent.Warp(new Vector3(0, -38.9f, 24.579f));
+        yield return new WaitForSeconds(0.2f);
         player.GetComponent<CharacterScript>().IncreasePlayerScore();
-        yield return new WaitForSeconds(2f);
+        yield return new WaitForSeconds(1.8f);
+
+        GameObject Primary = Instantiate(PrimaryGun, inventory);
+        Primary.transform.localPosition = new Vector3(0, 0, 0);
+        GameObject Secondary = Instantiate(SecondaryGun, inventory);
+        Secondary.transform.localPosition = new Vector3(0, 0, 0);
+        Secondary.SetActive(false);
+        currentGun = Primary.transform;
+
+        Primary.name = "Ak-47";
+        Secondary.name = "Pistol";
+
+        currentGunInt = 0;
+        patience = 0;
         Spawn();
     }
 
@@ -489,6 +724,10 @@ public class BaseAIScript : BaseCharScript
         playerLastPos = transform.position;
     }
 
+    public int GetAIScore()
+    {
+        return aiScore;
+    }
     private void DrawPath(NavMeshPath path)
     {
         if (path.corners.Length < 2) //if the path has 1 or no corners, there is no need

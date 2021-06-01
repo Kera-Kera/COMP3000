@@ -7,7 +7,7 @@ public class GunInfo : MonoBehaviour
     [SerializeField]
     private float damage;
     [SerializeField]
-    private float recoil;
+    private float spread;
     [SerializeField]
     private float velocity;
     [SerializeField]
@@ -17,16 +17,19 @@ public class GunInfo : MonoBehaviour
     [SerializeField]
     private float aiCorrection;
     [SerializeField]
+    private float aiCorrectionHeight;
+    [SerializeField]
     private float numberOfBullets = 1;
+
 
     public float GetDamage()
     {
         return damage;
     }
 
-    public float GetRecoil()
+    public float GetSpread()
     {
-        return recoil;
+        return spread;
     }
 
     public float GetVelocity()
@@ -44,10 +47,31 @@ public class GunInfo : MonoBehaviour
     }
     public float AIDrop()
     {
+        return aiCorrectionHeight;
+    }
+    public float AICorrection()
+    {
         return aiCorrection;
     }
     public float GetNumberOfBullets()
     {
         return numberOfBullets;
+    }
+
+    private void Update()
+    {
+        if(transform.tag == "PickUpable" && transform.GetComponent<Rigidbody>().useGravity == true)
+        {
+            StartCoroutine(DespawnWeapon());
+        }
+    }
+
+    IEnumerator DespawnWeapon()
+    {
+        yield return new WaitForSeconds(20);
+        if (transform.GetComponent<Rigidbody>().useGravity == true)
+        {
+            Destroy(transform.gameObject);
+        }
     }
 }

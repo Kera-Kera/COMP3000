@@ -52,7 +52,7 @@ public class HealthPack : MonoBehaviour
 
     IEnumerator WaitForSpawn()
     {
-        yield return new WaitForSeconds(30);
+        yield return new WaitForSeconds(15);
         transform.GetChild(0).gameObject.SetActive(true);
         transform.GetChild(1).gameObject.SetActive(true);
     }
